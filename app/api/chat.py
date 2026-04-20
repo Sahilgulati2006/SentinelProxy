@@ -59,6 +59,7 @@ async def create_chat_completion(payload: ChatCompletionRequest):
                 redactions_applied=redaction_result.redactions_applied,
                 risk_score=redaction_result.risk_score,
                 provider_used=provider_service.provider_name,
+                entity_counts=redaction_result.entity_counts,
             ),
             raw_provider_response=provider_response.get("provider_raw"),
         )

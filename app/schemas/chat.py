@@ -37,6 +37,7 @@ class SentinelMetadata(BaseModel):
     redactions_applied: int = 0
     risk_score: float = 0.0
     provider_used: str
+    entity_counts: dict[str, int] = Field(default_factory=dict)
 
 
 class ChatCompletionResponse(BaseModel):
