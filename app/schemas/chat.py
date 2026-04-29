@@ -38,6 +38,9 @@ class SentinelMetadata(BaseModel):
     risk_score: float = 0.0
     provider_used: str
     entity_counts: dict[str, int] = Field(default_factory=dict)
+    reidentification_applied: bool = False
+    unreplaced_placeholders: list[str] = Field(default_factory=list)
+    repaired_placeholders: list[str] = Field(default_factory=list)
 
 
 class ChatCompletionResponse(BaseModel):

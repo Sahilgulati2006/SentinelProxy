@@ -13,10 +13,12 @@ from app.schemas.chat import (
 )
 from app.services.provider_service import ProviderService
 from app.services.redaction_service import RedactionService
+from app.services.reidentification_service import ReidentificationService
 
 router = APIRouter()
 provider_service = ProviderService()
 redaction_service = RedactionService()
+reidentification_service = ReidentificationService()
 
 
 @router.post("/v1/chat/completions", response_model=ChatCompletionResponse)
@@ -38,6 +40,13 @@ async def create_chat_completion(payload: ChatCompletionRequest):
         message = choice0.get("message", {})
         usage_data = provider_response.get("usage", {})
 
+        model_content = message.get("content", "")
+
+        reidentification_result = reidentification_service.restore(
+            text=model_content,
+            mappings=redaction_result.mappings,
+        )
+
         return ChatCompletionResponse(
             id=provider_response.get("id", f"chatcmpl_{uuid.uuid4().hex[:12]}"),
             created=provider_response.get("created", int(time.time())),
@@ -45,7 +54,7 @@ async def create_chat_completion(payload: ChatCompletionRequest):
             choices=[
                 ChatChoice(
                     index=choice0.get("index", 0),
-                    message=AssistantMessage(content=message.get("content", "")),
+                    message=AssistantMessage(content=reidentification_result.restored_text),
                     finish_reason=choice0.get("finish_reason", "stop"),
                 )
             ],
@@ -60,7 +69,11 @@ async def create_chat_completion(payload: ChatCompletionRequest):
                 risk_score=redaction_result.risk_score,
                 provider_used=provider_service.provider_name,
                 entity_counts=redaction_result.entity_counts,
+                reidentification_applied=reidentification_result.reidentification_applied,
+                unreplaced_placeholders=reidentification_result.unreplaced_placeholders,
+                repaired_placeholders=reidentification_result.repaired_placeholders,
             ),
+        
             raw_provider_response=provider_response.get("provider_raw"),
         )
 
