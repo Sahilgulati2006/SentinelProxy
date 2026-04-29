@@ -8,3 +8,6 @@ class ProviderError(SentinelProxyError):
 
 class ValidationError(SentinelProxyError):
     """Raised when request validation fails."""
+
+class MappingStoreError(SentinelProxyError):
+    """Raised when secure placeholder mapping storage fails."""

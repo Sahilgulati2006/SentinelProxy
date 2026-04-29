@@ -4,7 +4,7 @@ import uuid
 from fastapi import APIRouter, HTTPException
 
 from app.core.config import settings
-from app.core.exceptions import ProviderError
+from app.core.exceptions import MappingStoreError, ProviderError
 from app.schemas.chat import (
     AssistantMessage,
     ChatChoice,
@@ -17,6 +17,7 @@ from app.services.mapping_store_service import MappingStoreService
 from app.services.provider_service import ProviderService
 from app.services.redaction_service import RedactionService
 from app.services.reidentification_service import ReidentificationService
+
 
 router = APIRouter()
 
@@ -116,6 +117,12 @@ async def create_chat_completion(payload: ChatCompletionRequest):
 
     except ProviderError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    
+    except MappingStoreError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc),
+        ) from exc
 
     except Exception as exc:
         raise HTTPException(
