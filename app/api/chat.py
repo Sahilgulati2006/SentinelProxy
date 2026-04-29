@@ -17,9 +17,11 @@ from app.services.mapping_store_service import MappingStoreService
 from app.services.provider_service import ProviderService
 from app.services.redaction_service import RedactionService
 from app.services.reidentification_service import ReidentificationService
+from app.services.audit_service import AuditService
 
 
 router = APIRouter()
+audit_service = AuditService()
 
 provider_service = ProviderService()
 redaction_service = RedactionService()
@@ -30,6 +32,7 @@ mapping_store_service = MappingStoreService()
 @router.post("/v1/chat/completions", response_model=ChatCompletionResponse)
 async def create_chat_completion(payload: ChatCompletionRequest):
     request_id = f"req_{uuid.uuid4().hex[:12]}"
+    started_at = time.time()
 
     total_chars = sum(len(msg.content) for msg in payload.messages)
     if total_chars > settings.MAX_REQUEST_CHARS:
@@ -73,7 +76,28 @@ async def create_chat_completion(payload: ChatCompletionRequest):
             text=model_content,
             mappings=stored_mappings,
         )
+        latency_ms = int((time.time() - started_at) * 1000)
 
+        await audit_service.record(
+            {
+                "request_id": request_id,
+                "provider_used": provider_service.provider_name,
+                "model": provider_response.get("model", payload.model or settings.DEFAULT_MODEL),
+                "status": "success",
+                "latency_ms": latency_ms,
+                "redactions_applied": redaction_result.redactions_applied,
+                "risk_score": redaction_result.risk_score,
+                "entity_counts": redaction_result.entity_counts,
+                "reidentification_applied": reidentification_result.reidentification_applied,
+                "unreplaced_placeholders": reidentification_result.unreplaced_placeholders,
+                "repaired_placeholders": reidentification_result.repaired_placeholders,
+                "usage": {
+                    "prompt_tokens": usage_data.get("prompt_tokens", 0),
+                    "completion_tokens": usage_data.get("completion_tokens", 0),
+                    "total_tokens": usage_data.get("total_tokens", 0),
+                },
+            }
+        )
         return ChatCompletionResponse(
             id=provider_response.get("id", f"chatcmpl_{uuid.uuid4().hex[:12]}"),
             created=provider_response.get("created", int(time.time())),
@@ -116,15 +140,48 @@ async def create_chat_completion(payload: ChatCompletionRequest):
         )
 
     except ProviderError as exc:
+        latency_ms = int((time.time() - started_at) * 1000)
+        await audit_service.record(
+            {
+                "request_id": request_id,
+                "provider_used": provider_service.provider_name,
+                "status": "provider_error",
+                "latency_ms": latency_ms,
+                "error_type": "ProviderError",
+                "error_message": str(exc),
+            }
+        )
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     
     except MappingStoreError as exc:
+        latency_ms = int((time.time() - started_at) * 1000)
+        await audit_service.record(
+            {
+                "request_id": request_id,
+                "provider_used": provider_service.provider_name,
+                "status": "mapping_store_error",
+                "latency_ms": latency_ms,
+                "error_type": "MappingStoreError",
+                "error_message": str(exc),
+            }
+        )
         raise HTTPException(
             status_code=503,
             detail=str(exc),
         ) from exc
 
     except Exception as exc:
+        latency_ms = int((time.time() - started_at) * 1000)
+        await audit_service.record(
+            {
+                "request_id": request_id,
+                "provider_used": provider_service.provider_name,
+                "status": "internal_error",
+                "latency_ms": latency_ms,
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
+            }
+        )
         raise HTTPException(
             status_code=500,
             detail=f"Internal server error: {str(exc)}",
