@@ -9,22 +9,18 @@ class Settings(BaseSettings):
     APP_PORT: int = 8000
 
     PROVIDER_NAME: str = "ollama"
-    DEFAULT_MODEL: str = "llama3.1:8b"
+    DEFAULT_MODEL: str = "qwen2.5:3b"
 
     OLLAMA_BASE_URL: str = "http://localhost:11434"
 
     OPENAI_COMPATIBLE_BASE_URL: str | None = None
     OPENAI_COMPATIBLE_API_KEY: str | None = None
 
+    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_TTL_SECONDS: int = 1800
+
     REQUEST_TIMEOUT_SECONDS: int = 120
     MAX_REQUEST_CHARS: int = 20000
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=True,
-        extra="ignore",
-    )
 
 
 settings = Settings()

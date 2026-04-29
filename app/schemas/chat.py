@@ -41,6 +41,7 @@ class SentinelMetadata(BaseModel):
     reidentification_applied: bool = False
     unreplaced_placeholders: list[str] = Field(default_factory=list)
     repaired_placeholders: list[str] = Field(default_factory=list)
+    mapping_store: str = "redis"
 
 
 class ChatCompletionResponse(BaseModel):
