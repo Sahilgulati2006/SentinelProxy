@@ -21,6 +21,7 @@ class Settings(BaseSettings):
 
     REQUEST_TIMEOUT_SECONDS: int = 120
     MAX_REQUEST_CHARS: int = 20000
+    SENTINEL_API_KEY: str = "sp_dev_key_123"
 
 
 settings = Settings()

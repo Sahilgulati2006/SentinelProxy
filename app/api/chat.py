@@ -1,7 +1,8 @@
 import time
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from app.api.deps import RequireAPIKey
 
 from app.core.config import settings
 from app.core.exceptions import MappingStoreError, ProviderError
@@ -30,7 +31,10 @@ mapping_store_service = MappingStoreService()
 
 
 @router.post("/v1/chat/completions", response_model=ChatCompletionResponse)
-async def create_chat_completion(payload: ChatCompletionRequest):
+async def create_chat_completion(
+    payload: ChatCompletionRequest,
+    _: None = RequireAPIKey,
+):
     request_id = f"req_{uuid.uuid4().hex[:12]}"
     started_at = time.time()
 
@@ -136,7 +140,9 @@ async def create_chat_completion(payload: ChatCompletionRequest):
                 ),
                 mapping_store="redis",
             ),
-            raw_provider_response=provider_response.get("provider_raw"),
+            raw_provider_response=(
+                    provider_response.get("provider_raw") if settings.APP_DEBUG else None
+            ),
         )
 
     except ProviderError as exc:
