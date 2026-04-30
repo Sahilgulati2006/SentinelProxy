@@ -45,8 +45,9 @@ class SentinelMetadata(BaseModel):
     repaired_placeholders: list[str] = Field(default_factory=list)
     mapping_store: str = "redis"
     budget: dict = Field(default_factory=dict)
+    rate_limit: dict = Field(default_factory=dict)
 
-    
+
 class ChatCompletionResponse(BaseModel):
     id: str
     object: str = "chat.completion"

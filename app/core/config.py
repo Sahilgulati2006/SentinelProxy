@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     REDIS_TTL_SECONDS: int = 1800
 
+    RATE_LIMIT_REQUESTS: int = 20
+    RATE_LIMIT_WINDOW_SECONDS: int = 60
+
     DATABASE_URL: str = "sqlite+aiosqlite:///./sentinelproxy.db"
 
     BOOTSTRAP_ADMIN_EMAIL: str = "admin@example.com"

@@ -11,3 +11,6 @@ class ValidationError(SentinelProxyError):
 
 class MappingStoreError(SentinelProxyError):
     """Raised when secure placeholder mapping storage fails."""
+
+class RateLimitExceededError(SentinelProxyError):
+    """Raised when an API key exceeds the allowed request rate."""

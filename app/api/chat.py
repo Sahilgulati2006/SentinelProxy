@@ -5,7 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import get_current_user
 from app.core.config import settings
-from app.core.exceptions import MappingStoreError, ProviderError
+from app.core.exceptions import (
+    MappingStoreError,
+    ProviderError,
+    RateLimitExceededError,
+)
 from app.schemas.auth import AuthenticatedUser
 from app.schemas.chat import (
     AssistantMessage,
@@ -19,6 +23,7 @@ from app.services.audit_service import AuditService
 from app.services.budget_service import BudgetExceededError, BudgetService
 from app.services.mapping_store_service import MappingStoreService
 from app.services.provider_service import ProviderService
+from app.services.rate_limit_service import RateLimitService
 from app.services.redaction_service import RedactionService
 from app.services.reidentification_service import ReidentificationService
 
@@ -30,6 +35,7 @@ reidentification_service = ReidentificationService()
 mapping_store_service = MappingStoreService()
 audit_service = AuditService()
 budget_service = BudgetService()
+rate_limit_service = RateLimitService()
 
 
 @router.post("/v1/chat/completions", response_model=ChatCompletionResponse)
@@ -54,23 +60,28 @@ async def create_chat_completion(
         )
 
     try:
-        # 1. Check user budget before doing provider work
+        # 1. Check short-term API key rate limit before provider work
+        rate_limit_info = await rate_limit_service.check_rate_limit(
+            current_user.api_key_prefix
+        )
+
+        # 2. Check monthly user token budget before provider work
         budget_before = await budget_service.check_budget(
             user_id=current_user.user_id,
             monthly_token_limit=current_user.monthly_token_limit,
         )
 
-        # 2. Redact sensitive data locally before sending anything to the model
+        # 3. Redact sensitive data locally before sending anything to the model
         redaction_result = await redaction_service.sanitize(payload)
 
-        # 3. Store request-scoped mappings in Redis before provider call
+        # 4. Store request-scoped mappings in Redis before provider call
         await mapping_store_service.store_mapping(
             request_id=request_id,
             mappings=redaction_result.mappings,
             entity_counts=redaction_result.entity_counts,
         )
 
-        # 4. Send only sanitized payload to the selected provider
+        # 5. Send only sanitized payload to the selected provider
         provider_response = await provider_service.forward(
             redaction_result.sanitized_payload
         )
@@ -82,17 +93,17 @@ async def create_chat_completion(
 
         total_tokens = usage_data.get("total_tokens", 0)
 
-        # 5. Increment user usage after successful provider response
+        # 6. Increment user usage after successful provider response
         budget_after = await budget_service.increment_usage(
             user_id=current_user.user_id,
             monthly_token_limit=current_user.monthly_token_limit,
             tokens=total_tokens,
         )
 
-        # 6. Fetch mappings back from Redis for re-identification
+        # 7. Fetch mappings back from Redis for re-identification
         stored_mappings = await mapping_store_service.get_mapping(request_id)
 
-        # 7. Restore placeholders in model output using Redis-backed mappings
+        # 8. Restore placeholders in model output using Redis-backed mappings
         reidentification_result = reidentification_service.restore(
             text=model_content,
             mappings=stored_mappings,
@@ -100,7 +111,7 @@ async def create_chat_completion(
 
         latency_ms = int((time.time() - started_at) * 1000)
 
-        # 8. PII-safe audit log. Do not log raw prompt, raw response, or mappings.
+        # 9. PII-safe audit log. Do not log raw prompt, raw response, or mappings.
         await audit_service.record(
             {
                 "request_id": request_id,
@@ -132,6 +143,7 @@ async def create_chat_completion(
                 },
                 "budget_before": budget_before,
                 "budget_after": budget_after,
+                "rate_limit": rate_limit_info,
             }
         )
 
@@ -175,6 +187,7 @@ async def create_chat_completion(
                 ),
                 mapping_store="redis",
                 budget=budget_after,
+                rate_limit=rate_limit_info,
             ),
             raw_provider_response=(
                 provider_response.get("provider_raw")
@@ -182,6 +195,25 @@ async def create_chat_completion(
                 else None
             ),
         )
+
+    except RateLimitExceededError as exc:
+        latency_ms = int((time.time() - started_at) * 1000)
+        await audit_service.record(
+            {
+                "request_id": request_id,
+                "user_id": current_user.user_id,
+                "api_key_prefix": current_user.api_key_prefix,
+                "provider_used": provider_service.provider_name,
+                "status": "rate_limit_exceeded",
+                "latency_ms": latency_ms,
+                "error_type": "RateLimitExceededError",
+                "error_message": str(exc),
+            }
+        )
+        raise HTTPException(
+            status_code=429,
+            detail=str(exc),
+        ) from exc
 
     except BudgetExceededError as exc:
         latency_ms = int((time.time() - started_at) * 1000)
