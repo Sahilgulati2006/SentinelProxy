@@ -1,11 +1,12 @@
 import time
 import uuid
 
-from fastapi import APIRouter, HTTPException, Depends
-from app.api.deps import RequireAPIKey
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.api.deps import get_current_user
 from app.core.config import settings
 from app.core.exceptions import MappingStoreError, ProviderError
+from app.schemas.auth import AuthenticatedUser
 from app.schemas.chat import (
     AssistantMessage,
     ChatChoice,
@@ -14,26 +15,27 @@ from app.schemas.chat import (
     SentinelMetadata,
     Usage,
 )
+from app.services.audit_service import AuditService
+from app.services.budget_service import BudgetExceededError, BudgetService
 from app.services.mapping_store_service import MappingStoreService
 from app.services.provider_service import ProviderService
 from app.services.redaction_service import RedactionService
 from app.services.reidentification_service import ReidentificationService
-from app.services.audit_service import AuditService
-
 
 router = APIRouter()
-audit_service = AuditService()
 
 provider_service = ProviderService()
 redaction_service = RedactionService()
 reidentification_service = ReidentificationService()
 mapping_store_service = MappingStoreService()
+audit_service = AuditService()
+budget_service = BudgetService()
 
 
 @router.post("/v1/chat/completions", response_model=ChatCompletionResponse)
 async def create_chat_completion(
     payload: ChatCompletionRequest,
-    _: None = RequireAPIKey,
+    current_user: AuthenticatedUser = Depends(get_current_user),
 ):
     request_id = f"req_{uuid.uuid4().hex[:12]}"
     started_at = time.time()
@@ -52,17 +54,23 @@ async def create_chat_completion(
         )
 
     try:
-        # 1. Redact sensitive data locally before sending anything to the model
+        # 1. Check user budget before doing provider work
+        budget_before = await budget_service.check_budget(
+            user_id=current_user.user_id,
+            monthly_token_limit=current_user.monthly_token_limit,
+        )
+
+        # 2. Redact sensitive data locally before sending anything to the model
         redaction_result = await redaction_service.sanitize(payload)
 
-        # 2. Store request-scoped mappings in Redis before provider call
+        # 3. Store request-scoped mappings in Redis before provider call
         await mapping_store_service.store_mapping(
             request_id=request_id,
             mappings=redaction_result.mappings,
             entity_counts=redaction_result.entity_counts,
         )
 
-        # 3. Send only sanitized payload to the selected provider
+        # 4. Send only sanitized payload to the selected provider
         provider_response = await provider_service.forward(
             redaction_result.sanitized_payload
         )
@@ -72,36 +80,61 @@ async def create_chat_completion(
         usage_data = provider_response.get("usage", {})
         model_content = message.get("content", "")
 
-        # 4. Fetch mappings back from Redis for re-identification
+        total_tokens = usage_data.get("total_tokens", 0)
+
+        # 5. Increment user usage after successful provider response
+        budget_after = await budget_service.increment_usage(
+            user_id=current_user.user_id,
+            monthly_token_limit=current_user.monthly_token_limit,
+            tokens=total_tokens,
+        )
+
+        # 6. Fetch mappings back from Redis for re-identification
         stored_mappings = await mapping_store_service.get_mapping(request_id)
 
-        # 5. Restore placeholders in model output using Redis-backed mappings
+        # 7. Restore placeholders in model output using Redis-backed mappings
         reidentification_result = reidentification_service.restore(
             text=model_content,
             mappings=stored_mappings,
         )
+
         latency_ms = int((time.time() - started_at) * 1000)
 
+        # 8. PII-safe audit log. Do not log raw prompt, raw response, or mappings.
         await audit_service.record(
             {
                 "request_id": request_id,
+                "user_id": current_user.user_id,
+                "api_key_prefix": current_user.api_key_prefix,
                 "provider_used": provider_service.provider_name,
-                "model": provider_response.get("model", payload.model or settings.DEFAULT_MODEL),
+                "model": provider_response.get(
+                    "model",
+                    payload.model or settings.DEFAULT_MODEL,
+                ),
                 "status": "success",
                 "latency_ms": latency_ms,
                 "redactions_applied": redaction_result.redactions_applied,
                 "risk_score": redaction_result.risk_score,
                 "entity_counts": redaction_result.entity_counts,
-                "reidentification_applied": reidentification_result.reidentification_applied,
-                "unreplaced_placeholders": reidentification_result.unreplaced_placeholders,
-                "repaired_placeholders": reidentification_result.repaired_placeholders,
+                "reidentification_applied": (
+                    reidentification_result.reidentification_applied
+                ),
+                "unreplaced_placeholders": (
+                    reidentification_result.unreplaced_placeholders
+                ),
+                "repaired_placeholders": (
+                    reidentification_result.repaired_placeholders
+                ),
                 "usage": {
                     "prompt_tokens": usage_data.get("prompt_tokens", 0),
                     "completion_tokens": usage_data.get("completion_tokens", 0),
-                    "total_tokens": usage_data.get("total_tokens", 0),
+                    "total_tokens": total_tokens,
                 },
+                "budget_before": budget_before,
+                "budget_after": budget_after,
             }
         )
+
         return ChatCompletionResponse(
             id=provider_response.get("id", f"chatcmpl_{uuid.uuid4().hex[:12]}"),
             created=provider_response.get("created", int(time.time())),
@@ -121,10 +154,12 @@ async def create_chat_completion(
             usage=Usage(
                 prompt_tokens=usage_data.get("prompt_tokens", 0),
                 completion_tokens=usage_data.get("completion_tokens", 0),
-                total_tokens=usage_data.get("total_tokens", 0),
+                total_tokens=total_tokens,
             ),
             sentinel=SentinelMetadata(
                 request_id=request_id,
+                user_id=current_user.user_id,
+                api_key_prefix=current_user.api_key_prefix,
                 redactions_applied=redaction_result.redactions_applied,
                 risk_score=redaction_result.risk_score,
                 provider_used=provider_service.provider_name,
@@ -139,17 +174,41 @@ async def create_chat_completion(
                     reidentification_result.repaired_placeholders
                 ),
                 mapping_store="redis",
+                budget=budget_after,
             ),
             raw_provider_response=(
-                    provider_response.get("provider_raw") if settings.APP_DEBUG else None
+                provider_response.get("provider_raw")
+                if settings.APP_DEBUG
+                else None
             ),
         )
+
+    except BudgetExceededError as exc:
+        latency_ms = int((time.time() - started_at) * 1000)
+        await audit_service.record(
+            {
+                "request_id": request_id,
+                "user_id": current_user.user_id,
+                "api_key_prefix": current_user.api_key_prefix,
+                "provider_used": provider_service.provider_name,
+                "status": "budget_exceeded",
+                "latency_ms": latency_ms,
+                "error_type": "BudgetExceededError",
+                "error_message": str(exc),
+            }
+        )
+        raise HTTPException(
+            status_code=429,
+            detail=str(exc),
+        ) from exc
 
     except ProviderError as exc:
         latency_ms = int((time.time() - started_at) * 1000)
         await audit_service.record(
             {
                 "request_id": request_id,
+                "user_id": current_user.user_id,
+                "api_key_prefix": current_user.api_key_prefix,
                 "provider_used": provider_service.provider_name,
                 "status": "provider_error",
                 "latency_ms": latency_ms,
@@ -158,12 +217,14 @@ async def create_chat_completion(
             }
         )
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    
+
     except MappingStoreError as exc:
         latency_ms = int((time.time() - started_at) * 1000)
         await audit_service.record(
             {
                 "request_id": request_id,
+                "user_id": current_user.user_id,
+                "api_key_prefix": current_user.api_key_prefix,
                 "provider_used": provider_service.provider_name,
                 "status": "mapping_store_error",
                 "latency_ms": latency_ms,
@@ -181,6 +242,8 @@ async def create_chat_completion(
         await audit_service.record(
             {
                 "request_id": request_id,
+                "user_id": current_user.user_id,
+                "api_key_prefix": current_user.api_key_prefix,
                 "provider_used": provider_service.provider_name,
                 "status": "internal_error",
                 "latency_ms": latency_ms,

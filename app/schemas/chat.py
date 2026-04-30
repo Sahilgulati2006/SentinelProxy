@@ -34,6 +34,8 @@ class Usage(BaseModel):
 
 class SentinelMetadata(BaseModel):
     request_id: str
+    user_id: str | None = None
+    api_key_prefix: str | None = None
     redactions_applied: int = 0
     risk_score: float = 0.0
     provider_used: str
@@ -42,8 +44,9 @@ class SentinelMetadata(BaseModel):
     unreplaced_placeholders: list[str] = Field(default_factory=list)
     repaired_placeholders: list[str] = Field(default_factory=list)
     mapping_store: str = "redis"
+    budget: dict = Field(default_factory=dict)
 
-
+    
 class ChatCompletionResponse(BaseModel):
     id: str
     object: str = "chat.completion"

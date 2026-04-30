@@ -19,9 +19,24 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     REDIS_TTL_SECONDS: int = 1800
 
+    DATABASE_URL: str = "sqlite+aiosqlite:///./sentinelproxy.db"
+
+    BOOTSTRAP_ADMIN_EMAIL: str = "admin@example.com"
+    BOOTSTRAP_MONTHLY_TOKEN_LIMIT: int = 100000
+
+    API_KEY_PEPPER: str = "change_this_in_env"
+
     REQUEST_TIMEOUT_SECONDS: int = 120
     MAX_REQUEST_CHARS: int = 20000
-    SENTINEL_API_KEY: str = "sp_dev_key_123"
+
+    LOG_LEVEL: str = "INFO"
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore",
+    )
 
 
 settings = Settings()
