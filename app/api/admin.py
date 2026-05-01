@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.audit_stats_service import AuditStatsService
 from app.api.admin_deps import RequireAdminKey
 from app.core.api_keys import generate_api_key, hash_api_key
 from app.integrations.db import get_db_session
@@ -16,6 +17,7 @@ from app.schemas.admin import (
 
 router = APIRouter(prefix="/v1/admin", tags=["admin"])
 repo = UserRepository()
+audit_stats_service = AuditStatsService()
 
 
 @router.post(
@@ -224,3 +226,10 @@ async def deactivate_user(
         is_active=user.is_active,
         created_at=user.created_at,
     )
+
+@router.get(
+    "/audit/stats",
+    dependencies=[RequireAdminKey],
+)
+async def get_audit_stats():
+    return audit_stats_service.get_stats()
