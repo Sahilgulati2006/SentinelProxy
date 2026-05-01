@@ -23,6 +23,39 @@ type CreatedApiKey = ApiKey & {
   api_key: string;
 };
 
+type AuditStats = {
+  total_events: number;
+  total_requests: number;
+  successful_requests: number;
+  failed_requests: number;
+  total_redactions: number;
+  total_tokens: number;
+  high_risk_requests: number;
+  status_counts: Record<string, number>;
+  provider_counts: Record<string, number>;
+  entity_counts: Record<string, number>;
+  error_counts: Record<string, number>;
+  recent_events: {
+    request_id?: string;
+    user_id?: string | null;
+    api_key_prefix?: string | null;
+    provider_used?: string;
+    model?: string;
+    status?: string;
+    latency_ms?: number;
+    redactions_applied?: number;
+    risk_score?: number;
+    entity_counts?: Record<string, number>;
+    usage?: {
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      total_tokens?: number;
+    };
+    error_type?: string | null;
+    recorded_at?: number;
+  }[];
+};
+
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
 
@@ -32,6 +65,7 @@ export default function AdminPage() {
 
   const [users, setUsers] = useState<User[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
+  const [auditStats, setAuditStats] = useState<AuditStats | null>(null);
 
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserBudget, setNewUserBudget] = useState("100000");
@@ -90,7 +124,7 @@ export default function AdminPage() {
     resetNotices();
 
     try {
-      const [usersRes, keysRes] = await Promise.all([
+      const [usersRes, keysRes, statsRes] = await Promise.all([
         fetch(`${API_BASE_URL}/v1/admin/users`, {
           headers: {
             "X-Admin-Key": adminKey,
@@ -101,10 +135,16 @@ export default function AdminPage() {
             "X-Admin-Key": adminKey,
           },
         }),
+        fetch(`${API_BASE_URL}/v1/admin/audit/stats`, {
+          headers: {
+            "X-Admin-Key": adminKey,
+          },
+        }),
       ]);
 
       const usersData = await usersRes.json();
       const keysData = await keysRes.json();
+      const statsData = await statsRes.json();
 
       if (!usersRes.ok) {
         throw new Error(formatApiError(usersRes.status, usersData.detail));
@@ -114,8 +154,13 @@ export default function AdminPage() {
         throw new Error(formatApiError(keysRes.status, keysData.detail));
       }
 
+      if (!statsRes.ok) {
+        throw new Error(formatApiError(statsRes.status, statsData.detail));
+      }
+
       setUsers(usersData);
       setApiKeys(keysData);
+      setAuditStats(statsData);
       setMessage("Admin data loaded.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load admin data.");
@@ -237,41 +282,41 @@ export default function AdminPage() {
 
   async function deactivateUser(userId: string) {
     const confirmed = window.confirm(
-        "Are you sure you want to delete this user? This will deactivate the user and revoke all their API keys."
+      "Are you sure you want to delete this user? This will deactivate the user and revoke all their API keys."
     );
 
     if (!confirmed) {
-        return;
+      return;
     }
 
     setLoading(true);
     resetNotices();
 
     try {
-        const res = await fetch(
+      const res = await fetch(
         `${API_BASE_URL}/v1/admin/users/${userId}/deactivate`,
         {
-            method: "POST",
-            headers: {
+          method: "POST",
+          headers: {
             "X-Admin-Key": adminKey,
-            },
+          },
         }
-        );
+      );
 
-        const data = await res.json();
+      const data = await res.json();
 
-        if (!res.ok) {
+      if (!res.ok) {
         throw new Error(formatApiError(res.status, data.detail));
-        }
+      }
 
-        setMessage(`Deleted user: ${data.email}`);
-        await loadAdminData();
+      setMessage(`Deleted user: ${data.email}`);
+      await loadAdminData();
     } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to delete user.");
+      setError(err instanceof Error ? err.message : "Failed to delete user.");
     } finally {
-        setLoading(false);
+      setLoading(false);
     }
-    }
+  }
 
   async function updateBudget() {
     if (!budgetUserId) {
@@ -314,6 +359,7 @@ export default function AdminPage() {
     setSaveAdminKey(false);
     setUsers([]);
     setApiKeys([]);
+    setAuditStats(null);
     setCreatedApiKey(null);
     setMessage("");
     setError("");
@@ -336,7 +382,8 @@ export default function AdminPage() {
               SentinelProxy Admin
             </h1>
             <p className="mt-3 max-w-2xl text-slate-300">
-              Manage users, API keys, revocation, and monthly token budgets.
+              Manage users, API keys, revocation, budgets, and safe usage
+              analytics.
             </p>
           </div>
 
@@ -352,6 +399,7 @@ export default function AdminPage() {
                 setAdminKey(e.target.value);
                 setUsers([]);
                 setApiKeys([]);
+                setAuditStats(null);
                 setCreatedApiKey(null);
                 setMessage("");
                 setError("");
@@ -426,6 +474,8 @@ export default function AdminPage() {
           </section>
         )}
 
+        <AnalyticsSection stats={auditStats} />
+
         <section className="grid gap-6 lg:grid-cols-3">
           <Panel title="Create User">
             <label className="block text-sm font-medium text-slate-300">
@@ -468,11 +518,13 @@ export default function AdminPage() {
               className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none ring-emerald-400/40 focus:ring-2"
             >
               <option value="">Select user</option>
-              {users.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.email}
-                </option>
-              ))}
+              {users
+                .filter((user) => user.is_active)
+                .map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.email}
+                  </option>
+                ))}
             </select>
 
             <label className="mt-4 block text-sm font-medium text-slate-300">
@@ -504,11 +556,13 @@ export default function AdminPage() {
               className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none ring-emerald-400/40 focus:ring-2"
             >
               <option value="">Select user</option>
-              {users.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.email}
-                </option>
-              ))}
+              {users
+                .filter((user) => user.is_active)
+                .map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.email}
+                  </option>
+                ))}
             </select>
 
             <label className="mt-4 block text-sm font-medium text-slate-300">
@@ -565,14 +619,14 @@ export default function AdminPage() {
                     </div>
 
                     {user.is_active && (
-                        <button
-                            onClick={() => deactivateUser(user.id)}
-                            disabled={loading}
-                            className="mt-4 rounded-lg border border-red-400/30 px-3 py-2 text-sm text-red-200 hover:bg-red-400/10 disabled:opacity-50"
-                        >
-                            Delete User
-                        </button>
-                        )}
+                      <button
+                        onClick={() => deactivateUser(user.id)}
+                        disabled={loading}
+                        className="mt-4 rounded-lg border border-red-400/30 px-3 py-2 text-sm text-red-200 hover:bg-red-400/10 disabled:opacity-50"
+                      >
+                        Delete User
+                      </button>
+                    )}
                   </div>
                 ))
               )}
@@ -628,6 +682,122 @@ export default function AdminPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+function AnalyticsSection({ stats }: { stats: AuditStats | null }) {
+  if (!stats) {
+    return (
+      <section className="rounded-2xl border border-dashed border-slate-800 bg-slate-900/40 p-6 text-sm text-slate-400">
+        Load admin data to view safe usage analytics.
+      </section>
+    );
+  }
+
+  return (
+    <section className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <StatCard label="Total Events" value={stats.total_events} />
+        <StatCard label="Successful Requests" value={stats.successful_requests} />
+        <StatCard label="Failed Requests" value={stats.failed_requests} />
+        <StatCard label="Total Redactions" value={stats.total_redactions} />
+        <StatCard label="Total Tokens" value={stats.total_tokens} />
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <Panel title="Entity Counts">
+          <KeyValueList data={stats.entity_counts} empty="No entities detected." />
+        </Panel>
+
+        <Panel title="Status Counts">
+          <KeyValueList data={stats.status_counts} empty="No statuses found." />
+        </Panel>
+
+        <Panel title="Provider Counts">
+          <KeyValueList data={stats.provider_counts} empty="No providers found." />
+        </Panel>
+      </div>
+
+      <Panel title="Recent Safe Audit Events">
+        {stats.recent_events.length === 0 ? (
+          <p className="text-sm text-slate-400">No recent events.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px] text-left text-sm">
+              <thead className="border-b border-slate-800 text-slate-400">
+                <tr>
+                  <th className="py-3 pr-4">Request</th>
+                  <th className="py-3 pr-4">Status</th>
+                  <th className="py-3 pr-4">Provider</th>
+                  <th className="py-3 pr-4">Redactions</th>
+                  <th className="py-3 pr-4">Risk</th>
+                  <th className="py-3 pr-4">Tokens</th>
+                  <th className="py-3 pr-4">Latency</th>
+                  <th className="py-3 pr-4">Key Prefix</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.recent_events.map((event, index) => (
+                  <tr key={`${event.request_id}-${index}`} className="border-b border-slate-900">
+                    <td className="py-3 pr-4 font-mono text-xs text-slate-300">
+                      {event.request_id || "unknown"}
+                    </td>
+                    <td className="py-3 pr-4">{event.status || "unknown"}</td>
+                    <td className="py-3 pr-4">{event.provider_used || "unknown"}</td>
+                    <td className="py-3 pr-4">{event.redactions_applied ?? 0}</td>
+                    <td className="py-3 pr-4">{event.risk_score ?? 0}</td>
+                    <td className="py-3 pr-4">
+                      {event.usage?.total_tokens ?? 0}
+                    </td>
+                    <td className="py-3 pr-4">{event.latency_ms ?? 0}ms</td>
+                    <td className="py-3 pr-4 font-mono text-xs">
+                      {event.api_key_prefix || "legacy"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+    </section>
+  );
+}
+
+function StatCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-xl">
+      <p className="text-sm text-slate-400">{label}</p>
+      <p className="mt-2 text-3xl font-bold text-slate-100">{value}</p>
+    </div>
+  );
+}
+
+function KeyValueList({
+  data,
+  empty,
+}: {
+  data: Record<string, number>;
+  empty: string;
+}) {
+  const entries = Object.entries(data || {});
+
+  if (entries.length === 0) {
+    return <p className="text-sm text-slate-400">{empty}</p>;
+  }
+
+  return (
+    <div className="space-y-2 text-sm">
+      {entries.map(([key, value]) => (
+        <div
+          key={key}
+          className="flex justify-between gap-4 border-b border-slate-800 py-2 last:border-b-0"
+        >
+          <span className="text-slate-400">{key}</span>
+          <span className="font-medium text-slate-200">{value}</span>
+        </div>
+      ))}
+    </div>
   );
 }
 
