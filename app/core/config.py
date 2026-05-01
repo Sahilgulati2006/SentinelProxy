@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     BOOTSTRAP_MONTHLY_TOKEN_LIMIT: int = 100000
 
     API_KEY_PEPPER: str = "change_this_in_env"
+    SENTINEL_ADMIN_KEY: str
 
     REQUEST_TIMEOUT_SECONDS: int = 120
     MAX_REQUEST_CHARS: int = 20000
