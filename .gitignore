@@ -8,3 +8,7 @@ __pycache__/
 .idea/
 .vscode/
 logs/
+
+apps/web/.next/
+apps/web/node_modules/
+apps/web/.env.local
