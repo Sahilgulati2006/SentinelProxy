@@ -372,7 +372,7 @@ export default function AdminPage() {
         <header className="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
           <div>
             <a
-              href="/"
+              href="/chat"
               className="text-sm text-emerald-300 hover:text-emerald-200"
             >
               ← Back to Protected Chat
