@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 type SentinelResponse = {
@@ -71,8 +72,21 @@ const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
 
 export default function Home() {
-  const [apiKey, setApiKey] = useState("");
-  const [saveKey, setSaveKey] = useState(false);
+  const [apiKey, setApiKey] = useState(() => {
+    if (typeof window === "undefined") {
+      return "";
+    }
+
+    return localStorage.getItem("sentinel_api_key") || "";
+  });
+
+  const [saveKey, setSaveKey] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+
+    return Boolean(localStorage.getItem("sentinel_api_key"));
+  });
   const [prompt, setPrompt] = useState(
     "My email is sahil@example.com and my phone is 413-555-0199. Summarize this."
   );
@@ -87,12 +101,6 @@ export default function Home() {
   const [statusLoading, setStatusLoading] = useState(false);
 
   useEffect(() => {
-    const storedKey = localStorage.getItem("sentinel_api_key");
-    if (storedKey) {
-      setApiKey(storedKey);
-      setSaveKey(true);
-    }
-
     checkReadiness();
   }, []);
 
@@ -234,12 +242,12 @@ export default function Home() {
               <h1 className="text-4xl font-bold tracking-tight">
                 SentinelProxy
               </h1>
-              <a
+              <Link
                 href="/"
                 className="text-sm text-emerald-300 hover:text-emerald-200"
               >
                 ← Back to Home
-              </a>
+              </Link>
             </div>
 
             <div>

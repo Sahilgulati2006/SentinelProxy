@@ -60,8 +60,21 @@ const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
 
 export default function AdminPage() {
-  const [adminKey, setAdminKey] = useState("");
-  const [saveAdminKey, setSaveAdminKey] = useState(false);
+  const [adminKey, setAdminKey] = useState(() => {
+    if (typeof window === "undefined") {
+      return "";
+    }
+
+    return localStorage.getItem("sentinel_admin_key") || "";
+  });
+
+  const [saveAdminKey, setSaveAdminKey] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+
+    return Boolean(localStorage.getItem("sentinel_admin_key"));
+  });
 
   const [users, setUsers] = useState<User[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
@@ -84,13 +97,6 @@ export default function AdminPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    const stored = localStorage.getItem("sentinel_admin_key");
-    if (stored) {
-      setAdminKey(stored);
-      setSaveAdminKey(true);
-    }
-  }, []);
 
   useEffect(() => {
     if (saveAdminKey && adminKey) {
