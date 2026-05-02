@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+
+    env:
+      APP_NAME: SentinelProxy
+      APP_ENV: test
+      APP_DEBUG: "false"
+      PROVIDER_NAME: ollama
+      DEFAULT_MODEL: qwen2.5:3b
+      OLLAMA_BASE_URL: http://localhost:11434
+      REDIS_URL: redis://localhost:6379/15
+      REDIS_TTL_SECONDS: 1800
+      DATABASE_URL: sqlite+aiosqlite:///./sentinelproxy_test.db
+      API_KEY_PEPPER: test_pepper
+      SENTINEL_ADMIN_KEY: test_admin_key
+      RATE_LIMIT_REQUESTS: 1000
+      RATE_LIMIT_WINDOW_SECONDS: 60
+      REQUEST_TIMEOUT_SECONDS: 120
+      MAX_REQUEST_CHARS: 20000
+      BOOTSTRAP_ADMIN_EMAIL: test@example.com
+      BOOTSTRAP_MONTHLY_TOKEN_LIMIT: 100000
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run backend tests
+        run: |
+          python -m pytest tests -v
+
+  frontend-build:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: apps/web
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Run frontend lint
+        run: npm run lint
+
+      - name: Build frontend
+        run: npm run build
