@@ -1,4 +1,4 @@
-.PHONY: setup install redis backend frontend bootstrap health ready dev-check stop-redis lint clean docker-up docker-down docker-bootstrap docker-logs
+.PHONY: setup install redis backend frontend bootstrap health ready dev-check stop-redis lint clean docker-up docker-down docker-bootstrap docker-logs test frontend-build
 
 PYTHON := python3.12
 VENV := .venv
@@ -42,6 +42,15 @@ dev-check:
 	curl -s http://127.0.0.1:8000/ready
 	@echo ""
 
+test:
+	$(PY) -m pytest tests -v
+
+lint:
+	cd apps/web && npm run lint
+
+frontend-build:
+	cd apps/web && npm run build
+
 clean:
 	find . -type d -name "__pycache__" -prune -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
@@ -58,6 +67,3 @@ docker-bootstrap:
 
 docker-logs:
 	docker compose logs -f
-
-lint:
-	cd apps/web && npm run lint
