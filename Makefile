@@ -1,4 +1,4 @@
-.PHONY: setup install redis backend frontend bootstrap health ready stop-redis lint clean
+.PHONY: setup install redis backend frontend bootstrap health ready dev-check stop-redis lint clean docker-up docker-down docker-bootstrap docker-logs
 
 PYTHON := python3.12
 VENV := .venv
@@ -40,8 +40,24 @@ dev-check:
 	curl -s http://127.0.0.1:8000/health
 	@echo "\nChecking readiness..."
 	curl -s http://127.0.0.1:8000/ready
+	@echo ""
 
 clean:
 	find . -type d -name "__pycache__" -prune -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
 	rm -rf .pytest_cache
+
+docker-up:
+	docker compose up --build
+
+docker-down:
+	docker compose down
+
+docker-bootstrap:
+	docker exec -it sentinelproxy-backend python -m scripts.bootstrap_dev
+
+docker-logs:
+	docker compose logs -f
+
+lint:
+	cd apps/web && npm run lint
