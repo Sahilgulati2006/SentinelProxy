@@ -1,4 +1,4 @@
-.PHONY: setup install redis backend frontend bootstrap health ready dev-check stop-redis lint clean docker-up docker-down docker-bootstrap docker-logs test frontend-build
+.PHONY: setup install redis backend frontend bootstrap health ready dev-check stop-redis lint clean docker-up docker-down docker-bootstrap docker-logs test frontend-build init-db
 
 PYTHON := python3.12
 VENV := .venv
@@ -67,3 +67,6 @@ docker-bootstrap:
 
 docker-logs:
 	docker compose logs -f
+
+init-db:
+	$(PY) -m scripts.init_db
