@@ -9,6 +9,7 @@ async def main() -> None:
         await conn.run_sync(Base.metadata.create_all)
 
     print("Database tables initialized successfully.")
+    print("Note: For production, prefer: alembic upgrade head")
 
 
 if __name__ == "__main__":

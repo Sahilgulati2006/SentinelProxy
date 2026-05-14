@@ -1,4 +1,4 @@
-.PHONY: setup install redis backend frontend bootstrap health ready dev-check stop-redis lint clean docker-up docker-down docker-bootstrap docker-logs test frontend-build init-db
+.PHONY: setup install redis backend frontend bootstrap health ready dev-check stop-redis lint clean docker-up docker-down docker-bootstrap docker-logs test frontend-build init-db migrate migration
 
 PYTHON := python3.12
 VENV := .venv
@@ -69,4 +69,10 @@ docker-logs:
 	docker compose logs -f
 
 init-db:
-	$(PY) -m scripts.init_db
+	$(PY) -m scripts.
+
+migrate:
+	$(VENV)/bin/alembic upgrade head
+
+migration:
+	$(VENV)/bin/alembic revision --autogenerate -m "$(msg)"
