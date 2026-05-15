@@ -1,28 +1,25 @@
 # SentinelProxy
 
-SentinelProxy is a local-first LLM security proxy that protects sensitive prompts before they reach a model provider.
+SentinelProxy is a production-style LLM security gateway that protects sensitive user data before it reaches a model provider.
 
-It provides an OpenAI-compatible chat endpoint with local PII redaction, Redis-backed placeholder mapping, response re-identification, API key authentication, user budgets, rate limits, PII-safe audit logs, an admin dashboard, and a protected chat web UI.
+It works as an OpenAI-compatible proxy: users and applications send chat requests to SentinelProxy, SentinelProxy redacts sensitive information locally, forwards only protected placeholders to the model, then safely restores the final response.
+
+**Live Demo**
+
+- Frontend: https://sentinel-proxy-phi.vercel.app
+- Backend: https://sentinelproxy-api.onrender.com
 
 ---
 
-## Why SentinelProxy Exists
+## Why I Built This
 
-Modern AI apps often send raw user prompts directly to external or local model providers. Those prompts may contain sensitive data such as:
+LLM apps often send raw user prompts directly to model providers. Those prompts can contain sensitive information such as emails, phone numbers, SSNs, credit card numbers, API keys, or customer records.
 
-- Emails
-- Phone numbers
-- SSNs
-- Credit cards
-- IP addresses
-- API keys or secrets
-
-SentinelProxy sits between the client and the model provider.
-
-Instead of sending raw sensitive values to the model, it replaces them with protected placeholders like:
+SentinelProxy reduces this risk by sitting between the client and the model provider.
 
 ```text
-<<SP_EMAIL_1>>
-<<SP_PHONE_1>>
-<<SP_SSN_1>>
-<<SP_CREDIT_CARD_1>>
+Raw prompt:
+My email is sahil@example.com and my phone is 413-555-0199.
+
+Provider receives:
+My email is <<SP_EMAIL_1>> and my phone is <<SP_PHONE_1>>.
